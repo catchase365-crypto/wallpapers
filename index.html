@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniFlow 3D Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: #000;
+            color: #ccc;
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+        .glass-panel {
+            background: rgba(10, 10, 10, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            /* 移动端底部增加边框，区分界限 */
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05); 
+        }
+
+        @media (min-width: 1024px) {
+            .glass-panel {
+                border-bottom: none;
+            }
+        }
+
+        canvas {
+            box-shadow: 0 0 100px rgba(0,0,0,0.9);
+            max-height: 85vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* 引擎网格 */
+        .engine-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .engine-card {
+            background: #111;
+            border: 1px solid #222;
+            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            position: relative;
+            overflow: hidden;
+            height: 60px; /* Compact */
+        }
+        .engine-card:hover {
+            border-color: #555;
+            background: #181818;
+            transform: translateY(-1px);
+        }
+        .engine-card.active {
+            border-color: #fff;
+            background: #fff;
+            color: #000;
+            box-shadow: 0 4px 20px rgba(255,255,255,0.2);
+        }
+        .engine-card.active .sub-text { color: #666; }
+        
+        /* 风格按钮 */
+        .style-btn {
+            background: #0f0f0f;
+            border: 1px solid #222;
+            transition: all 0.2s;
+        }
+        .style-btn:hover { background: #1a1a1a; border-color: #444; }
+        .style-btn.active {
+            background: #222; border-color: #fff; color: white;
+            box-shadow: inset 0 0 0 1px #fff;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none; background: transparent; cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 10px; width: 10px;
+            border-radius: 50%; background: #fff; margin-top: -4px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 2px; background: #333;
+        }
+    </style>
+</head>
+<!-- FIX: 移动端使用 min-h-screen 允许自然滚动，桌面端使用 h-screen 锁定布局 -->
+<body class="min-h-screen lg:h-screen w-full flex flex-col lg:flex-row bg-black lg:overflow-hidden">
+
+    <!-- 滚动容器：移动端自然流，桌面端 Flex 锁定 -->
+    <div class="flex-1 flex flex-col lg:flex-row w-full h-auto lg:h-full lg:overflow-hidden">
+
+        <!-- 左侧控制台 -->
+        <!-- FIX: z-index 提高到 30，确保头部阴影正确，但在流式布局中不遮挡下方内容 -->
+        <aside class="w-full lg:w-[460px] glass-panel flex flex-col relative z-30 shrink-0 h-auto lg:h-full lg:overflow-y-auto">
+            
+            <div class="p-6 border-b border-white/5 bg-[#050505] sticky top-0 z-40 backdrop-blur-md">
+                <div class="flex justify-between items-baseline">
+                    <h1 class="text-2xl font-bold tracking-tighter text-white italic">OmniFlow <span class="text-xs not-italic font-normal text-neutral-500 border border-neutral-800 px-1 rounded ml-1">3D</span></h1>
+                    <div class="text-[9px] text-neutral-600 font-mono tracking-widest" id="seed-display">SEED: NULL</div>
+                </div>
+            </div>
+
+            <div class="p-5 space-y-8 pb-10">
+                
+                <!-- 1. 引擎矩阵 (16个) -->
+                <div class="space-y-3">
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 flex justify-between">
+                        <span>Visual Engine</span>
+                        <span>16 MODES</span>
+                    </label>
+                    <div class="engine-grid">
+                        <!-- 核心 2D -->
+                        <button onclick="setEngine('flow')" id="eng-flow" class="engine-card active p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-wind mr-2"></i>Flow 流体</span></button>
+                        <button onclick="setEngine('aura')" id="eng-aura" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-bullseye mr-2"></i>Aura 光晕</span></button>
+                        <button onclick="setEngine('acid')" id="eng-acid" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-biohazard mr-2"></i>Acid 酸性</span></button>
+                        <button onclick="setEngine('glitch')" id="eng-glitch" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-bolt mr-2"></i>Glitch 故障</span></button>
+                        <button onclick="setEngine('neon')" id="eng-neon" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-code mr-2"></i>Neon 霓虹</span></button>
+                        <button onclick="setEngine('pixel')" id="eng-pixel" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-border-all mr-2"></i>Pixel 像素</span></button>
+                        
+                        <!-- 修复版 -->
+                        <button onclick="setEngine('orbs')" id="eng-orbs" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-circle mr-2"></i>Orbs 浮球</span></button>
+                        <button onclick="setEngine('galaxy')" id="eng-galaxy" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-atom mr-2"></i>Galaxy 星系</span></button>
+
+                        <!-- 新增 3D -->
+                        <button onclick="setEngine('grid')" id="eng-grid" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-th mr-2"></i>Grid 网格</span></button>
+                        <button onclick="setEngine('tunnel')" id="eng-tunnel" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-circle-notch mr-2"></i>Tunnel 隧道</span></button>
+                        <button onclick="setEngine('blocks')" id="eng-blocks" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-cubes mr-2"></i>Blocks 积木</span></button>
+                        <button onclick="setEngine('ribbon')" id="eng-ribbon" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-ribbon mr-2"></i>Ribbon 飘带</span></button>
+                        <button onclick="setEngine('topo')" id="eng-topo" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-mountain mr-2"></i>Topo 地形</span></button>
+                        <button onclick="setEngine('shards')" id="eng-shards" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-play mr-2"></i>Shards 碎片</span></button>
+                        <button onclick="setEngine('vortex')" id="eng-vortex" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-hurricane mr-2"></i>Vortex 旋涡</span></button>
+                        <button onclick="setEngine('crystal')" id="eng-crystal" class="engine-card p-2 rounded flex flex-col justify-center items-start pl-3"><span class="text-xs font-bold uppercase"><i class="fas fa-shapes mr-2"></i>Crystal 晶体</span></button>
+                    </div>
+                </div>
+
+                <!-- 2. 风格选择 -->
+                <div class="space-y-3 pt-4 border-t border-white/5">
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Color Palette</label>
+                    <div id="preset-grid" class="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                        <!-- JS Populate -->
+                    </div>
+                </div>
+
+                <!-- 3. 参数微调 -->
+                <div class="space-y-4 pt-4 border-t border-white/5">
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-[10px] uppercase text-neutral-500 font-bold"><span>Saturation</span><span id="satVal" class="text-white">--</span></div>
+                        <input type="range" id="satRange" min="0" max="100" oninput="updateUI()">
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-[10px] uppercase text-neutral-500 font-bold"><span>Brightness</span><span id="briVal" class="text-white">--</span></div>
+                        <input type="range" id="briRange" min="0" max="100" oninput="updateUI()">
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-[10px] uppercase text-neutral-500 font-bold"><span>Chaos / Detail</span><span id="chaosVal" class="text-white">--</span></div>
+                        <input type="range" id="chaosRange" min="10" max="100" oninput="updateUI()">
+                    </div>
+                </div>
+
+                <!-- 4. 导出区 -->
+                <div class="space-y-3 pt-4 border-t border-white/5">
+                    <div class="flex flex-wrap gap-2 text-[10px] text-neutral-500 font-mono">
+                        <button onclick="setSize(1206,2622)" class="px-2 py-1 border border-neutral-800 hover:bg-neutral-800 rounded">i17</button>
+                        <button onclick="setSize(1260,2736)" class="px-2 py-1 border border-neutral-800 hover:bg-neutral-800 rounded">Air</button>
+                        <button onclick="setSize(1320,2868)" class="px-2 py-1 border border-neutral-800 hover:bg-neutral-800 rounded">ProMax</button>
+                        <button onclick="setSize(3840,2160)" class="px-2 py-1 border border-neutral-800 hover:bg-neutral-800 rounded">4K</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="number" id="wIn" value="1206" class="w-20 bg-[#111] border border-[#222] p-2 rounded text-xs text-center text-white font-mono">
+                        <span class="self-center text-neutral-600">x</span>
+                        <input type="number" id="hIn" value="2622" class="w-20 bg-[#111] border border-[#222] p-2 rounded text-xs text-center text-white font-mono">
+                        <button onclick="generate()" class="flex-1 bg-white text-black font-bold text-xs uppercase rounded hover:bg-neutral-200 transition">
+                            Generate
+                        </button>
+                    </div>
+                    <button onclick="downloadImg()" class="w-full bg-[#111] text-neutral-400 py-3 rounded border border-[#222] hover:bg-[#222] hover:text-white transition text-xs font-mono">
+                        DOWNLOAD .PNG
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 画布 -->
+        <!-- FIX: 移动端增加 mt-10 物理隔开，z-index 为 10 确保层级正确 -->
+        <main class="w-full lg:flex-1 relative flex flex-col items-center justify-center bg-[#000] p-4 lg:p-10 min-h-[60vh] lg:h-full lg:overflow-y-auto mt-10 lg:mt-0 pb-32 lg:pb-10 z-10 border-t border-white/10 lg:border-t-0">
+            <div class="relative w-full h-full flex items-center justify-center">
+                <canvas id="canvas"></canvas>
+            </div>
+            
+            <div id="loader" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 opacity-0 transition-opacity duration-200 pointer-events-none text-center z-50 mix-blend-difference">
+                <i class="fas fa-circle-notch fa-spin text-2xl text-white mb-4"></i>
+                <div class="text-[10px] text-white font-mono tracking-[0.2em] mb-2" id="status-text">PROCESSING</div>
+                <div class="h-[2px] bg-[#333] w-full rounded overflow-hidden">
+                    <div id="progress" class="h-full bg-white w-0 transition-all duration-75"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- 核心状态 ---
+        let currentEngine = 'flow';
+        let currentHueLock = -1;
+        let isGenerating = false;
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        // --- 风格预设 ---
+        const presets = [
+            { id: 'zen', name: '暗夜静谧 Zen', hex: '#111', s: 5, b: 8, c: 50, h: -1 },
+            { id: 'neon', name: '赛博霓虹 Neon', hex: '#00e5ff', s: 90, b: 15, c: 85, h: -1 },
+            { id: 'acid', name: '酸性绿 Acid', hex: '#c6ff00', s: 90, b: 10, c: 95, h: 70 },
+            { id: 'vapor', name: '蒸汽波 Vapor', hex: '#e040fb', s: 60, b: 40, c: 40, h: 280 },
+            { id: 'sunset', name: '落日 Sunset', hex: '#ff6d00', s: 80, b: 30, c: 60, h: 20 },
+            { id: 'ocean', name: '深海 DeepSea', hex: '#0277bd', s: 60, b: 10, c: 55, h: 210 },
+            { id: 'forest', name: '森林 Forest', hex: '#2e7d32', s: 50, b: 15, c: 65, h: 130 },
+            { id: 'lavender', name: '薰衣草 Soft', hex: '#b39ddb', s: 30, b: 85, c: 45, h: 260 },
+            { id: 'matrix', name: '黑客 Matrix', hex: '#00ff00', s: 80, b: 5, c: 90, h: 120 },
+            { id: 'obsidian', name: '黑曜石 Dark', hex: '#000', s: 0, b: 3, c: 30, h: -1 },
+            { id: 'gold', name: '黑金 Luxe', hex: '#ffd700', s: 60, b: 5, c: 40, h: 45 },
+            { id: 'paper', name: '纸张 Paper', hex: '#f5f5f5', s: 0, b: 95, c: 40, h: -1 },
+            { id: 'blood', name: '绯红 Crimson', hex: '#d50000', s: 80, b: 8, c: 80, h: 350 },
+            { id: 'blueprint', name: '蓝图 Tech', hex: '#2196f3', s: 60, b: 90, c: 20, h: 210 },
+            { id: 'candy', name: '糖果 Pop', hex: '#ff4081', s: 70, b: 70, c: 60, h: -1 },
+            { id: 'mint', name: '薄荷 Mint', hex: '#69f0ae', s: 40, b: 90, c: 50, h: 150 },
+            { id: 'mist', name: '迷雾 Fog', hex: '#9e9e9e', s: 5, b: 60, c: 70, h: -1 },
+            { id: 'rust', name: '铁锈 Rust', hex: '#8d6e63', s: 40, b: 20, c: 80, h: 25 },
+            { id: 'void', name: '虚空 Void', hex: '#6200ea', s: 70, b: 5, c: 70, h: 270 },
+            { id: 'ice', name: '冰川 Ice', hex: '#80deea', s: 30, b: 85, c: 40, h: 190 },
+        ];
+
+        // --- 初始化 ---
+        const grid = document.getElementById('preset-grid');
+        presets.forEach(p => {
+            const btn = document.createElement('button');
+            btn.className = 'style-btn py-2 px-3 rounded text-[10px] text-left flex items-center gap-2 text-neutral-400';
+            btn.innerHTML = `<div class="w-2 h-2 rounded-full shrink-0 shadow-sm" style="background:${p.hex}"></div><span class="truncate font-medium">${p.name}</span>`;
+            btn.onclick = () => loadPreset(p, btn);
+            grid.appendChild(btn);
+        });
+
+        function loadPreset(p, btn) {
+            document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('satRange').value = p.s;
+            document.getElementById('briRange').value = p.b;
+            document.getElementById('chaosRange').value = p.c;
+            currentHueLock = p.h;
+            updateUI();
+            generate();
+        }
+
+        function setEngine(e) {
+            currentEngine = e;
+            document.querySelectorAll('.engine-card').forEach(b => b.classList.remove('active'));
+            document.getElementById('eng-'+e).classList.add('active');
+            generate();
+        }
+
+        function setSize(w, h) {
+            document.getElementById('wIn').value = w;
+            document.getElementById('hIn').value = h;
+            generate();
+        }
+
+        function updateUI() {
+            document.getElementById('satVal').innerText = document.getElementById('satRange').value;
+            document.getElementById('briVal').innerText = document.getElementById('briRange').value;
+            document.getElementById('chaosVal').innerText = document.getElementById('chaosRange').value;
+        }
+
+        // --- Math & Noise ---
+        const Perm = new Uint8Array(512);
+        const Grad = new Int8Array([1,1,-1,1,1,-1,-1,-1,1,0,-1,0,1,0,-1,0,0,1,0,-1,0,1,0,-1]);
+        function initNoise(){for(let i=0;i<256;i++)Perm[i]=i;for(let i=0;i<256;i++){const r=(Math.random()*256)|0;const t=Perm[i];Perm[i]=Perm[r];Perm[r]=t;Perm[i+256]=Perm[i];}}
+        function noise(x,y){const F2=0.5*(Math.sqrt(3)-1);const s=(x+y)*F2;const i=(x+s)|0;const j=(y+s)|0;const t=(i+j)*(3-Math.sqrt(3))/6;const X0=i-t;const Y0=j-t;const x0=x-X0;const y0=y-Y0;const i1=x0>y0?1:0;const j1=x0>y0?0:1;const x1=x0-i1+(3-Math.sqrt(3))/6;const y1=y0-j1+(3-Math.sqrt(3))/6;const x2=x0-1.0+2.0*(3-Math.sqrt(3))/6;const y2=y0-1.0+2.0*(3-Math.sqrt(3))/6;const ii=i&255;const jj=j&255;function c(ix,iy,x,y){let t=0.5-x*x-y*y;if(t<0)return 0;t*=t;let gi=(Perm[ii+ix+Perm[jj+iy]]%12)*2;return t*t*(Grad[gi]*x+Grad[gi+1]*y);}return 70.0*(c(0,0,x0,y0)+c(i1,j1,x1,y1)+c(1,1,x2,y2));}
+        function rnd(min, max) { return Math.random() * (max - min) + min; }
+
+        // --- 主逻辑 ---
+        async function generate() {
+            if (isGenerating) return;
+            isGenerating = true;
+
+            const w = parseInt(document.getElementById('wIn').value);
+            const h = parseInt(document.getElementById('hIn').value);
+            const sat = parseInt(document.getElementById('satRange').value);
+            const bri = parseInt(document.getElementById('briRange').value);
+            const chaos = parseInt(document.getElementById('chaosRange').value) / 100;
+            
+            canvas.width = w; canvas.height = h;
+            initNoise();
+            const genes = new Float32Array(50).map(Math.random);
+            document.getElementById('seed-display').innerText = 'SEED:' + Math.floor(genes[0]*99999).toString(16).toUpperCase();
+
+            const baseHue = currentHueLock === -1 ? Math.floor(genes[0] * 360) : (currentHueLock + rnd(-20,20))%360;
+            const bgS = Math.max(0, sat * 0.7 - 10);
+            const bgL = bri;
+            const isLight = bgL > 50;
+            
+            ctx.fillStyle = `hsl(${baseHue}, ${bgS}%, ${bgL}%)`;
+            ctx.fillRect(0,0,w,h);
+
+            const loader = document.getElementById('loader');
+            const progress = document.getElementById('progress');
+            loader.style.opacity = 1;
+            document.getElementById('status-text').innerText = `RENDERING ${currentEngine.toUpperCase()}`;
+
+            const renderFn = {
+                'flow': renderFlow, 'aura': renderAura, 'crystal': renderCrystal,
+                'acid': renderAcid, 'orbs': renderOrbs, 'glitch': renderGlitch,
+                'neon': renderNeon, 'pixel': renderPixel, 'galaxy': renderGalaxy,
+                // NEW 3D
+                'grid': renderGrid, 'tunnel': renderTunnel, 'blocks': renderBlocks,
+                'ribbon': renderRibbon, 'topo': renderTopo, 'shards': renderShards,
+                'vortex': renderVortex
+            }[currentEngine];
+
+            if(renderFn) await renderFn(w, h, baseHue, sat, bgL, isLight, chaos, genes, progress);
+
+            finishRender(genes, isLight);
+        }
+
+        // --- ENGINES ---
+
+        // 1. Flow (流体)
+        async function renderFlow(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            let penH=(isLight)?(hue+180)%360:(hue+genes[1]*40-20)%360;
+            let penL=(isLight)?bgL-60:bgL+40;
+            const count = Math.min(8000, w*h/500);
+            const particles = Array.from({length:count}, ()=>({x:rnd(0,w),y:rnd(0,h),life:rnd(100,300),age:0,vx:0,vy:0}));
+            const scale = (0.001 + genes[2]*0.002) * (1+chaos);
+            const alpha = (0.02 + chaos*0.03) * (isLight?1.5:1);
+            ctx.lineWidth = 1 + genes[3]*2;
+            ctx.strokeStyle = `hsla(${penH},${sat}%,${penL}%,${alpha})`;
+
+            const frames = 100 + chaos*100;
+            for(let f=0;f<frames;f++){
+                ctx.beginPath();
+                for(let p of particles){
+                    if(p.age>p.life) continue;
+                    const a = noise(p.x*scale, p.y*scale)*Math.PI*4;
+                    p.vx += Math.cos(a)*0.1; p.vy += Math.sin(a)*0.1;
+                    p.vx*=0.94; p.vy*=0.94;
+                    p.x+=p.vx*(1+chaos); p.y+=p.vy*(1+chaos);
+                    p.age++;
+                    ctx.moveTo(p.x-p.vx, p.y-p.vy); ctx.lineTo(p.x,p.y);
+                    if(p.x<0||p.x>w||p.y<0||p.y>h){p.x=rnd(0,w);p.y=rnd(0,h);p.age=0;}
+                }
+                ctx.stroke();
+                if(f%5===0) {progress.style.width = (f/frames*100)+'%'; await tick();}
+            }
+        }
+
+        // 2. Orbs (浮球 - 修复版：底部堆积)
+        async function renderOrbs(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 6 + Math.floor(chaos * 8);
+            for(let i=0; i<count; i++) {
+                const r = rnd(w*0.15, w*0.35);
+                // 重点：让气球出现在下半部分 (y 范围从 h*0.4 到 h+r)
+                const x = rnd(0, w); 
+                const y = rnd(h*0.4, h + r*0.5); 
+                
+                const g = ctx.createRadialGradient(x-r*0.3, y-r*0.3, r*0.1, x, y, r);
+                const hVal = (hue + rnd(-30,30))%360;
+                g.addColorStop(0, `hsla(${hVal}, ${sat}%, ${isLight?90:80}%, 0.9)`);
+                g.addColorStop(0.5, `hsla(${hVal}, ${sat}%, ${isLight?bgL-10:bgL+10}%, 0.5)`);
+                g.addColorStop(1, `hsla(${hVal}, ${sat}%, ${isLight?bgL-30:bgL-20}%, 0.0)`);
+                
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                
+                // Rim light
+                ctx.strokeStyle = `hsla(${hVal}, ${sat}%, 90%, 0.2)`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+        }
+
+        // 3. Galaxy (星系 - 修复版：全屏)
+        async function renderGalaxy(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const particles = 4000;
+            // 随机中心点，不一定在正中间
+            const cx = rnd(w*0.2, w*0.8); const cy = rnd(h*0.2, h*0.8);
+            const maxDist = Math.hypot(w, h); // 覆盖全屏
+
+            for(let i=0; i<particles; i++) {
+                // 不只是螺旋，加入完全随机分布的星尘
+                const isSpiral = Math.random() > 0.3;
+                let x, y, hVal;
+
+                if (isSpiral) {
+                    const angle = rnd(0, Math.PI*8);
+                    const dist = rnd(0, maxDist * 0.8);
+                    const spiralOffset = angle * 50 * (genes[5]+0.5);
+                    x = cx + Math.cos(angle + spiralOffset) * dist;
+                    y = cy + Math.sin(angle + spiralOffset) * dist;
+                    hVal = (hue + dist/10)%360;
+                } else {
+                    x = rnd(0, w); y = rnd(0, h);
+                    hVal = (hue + rnd(-60, 60))%360;
+                }
+                
+                const size = rnd(0.5, 2.5);
+                const alpha = rnd(0.1, 0.9);
+                
+                ctx.fillStyle = `hsla(${hVal}, ${sat}%, ${isLight?40:80}%, ${alpha})`;
+                ctx.beginPath(); ctx.arc(x,y,size,0,Math.PI*2); ctx.fill();
+                
+                if(i%100===0) { progress.style.width = (i/particles*100)+'%'; await tick(); }
+            }
+        }
+
+        // --- NEW 3D ENGINES ---
+
+        // 4. Grid (网格 - Vaporwave Floor)
+        async function renderGrid(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const horizon = h * 0.4; // 地平线位置
+            const lines = 40;
+            
+            // 地面渐变
+            const grad = ctx.createLinearGradient(0, horizon, 0, h);
+            grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${bgL}%, 0)`);
+            grad.addColorStop(1, `hsla(${hue}, ${sat}%, ${isLight?bgL-10:bgL+20}%, 1)`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, horizon, w, h-horizon);
+
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = `hsla(${(hue+180)%360}, 100%, ${isLight?40:70}%, 0.8)`;
+            
+            // 纵向线 (透视)
+            for(let i= -20; i<=40; i++) {
+                const xBase = w/2 + (i*w*0.1); // 底部间距
+                const xTop = w/2 + (i*w*0.01); // 顶部聚集点
+                ctx.beginPath();
+                ctx.moveTo(xTop, horizon);
+                ctx.lineTo(xBase, h);
+                ctx.stroke();
+            }
+
+            // 横向线 (指数级逼近地平线)
+            for(let i=0; i<lines; i++) {
+                const p = i/lines;
+                const y = h - (Math.pow(p, 2) * (h-horizon)); // 指数分布营造深度
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+                progress.style.width = (i/lines*100)+'%'; await tick();
+            }
+        }
+
+        // 5. Tunnel (隧道)
+        async function renderTunnel(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const cx = w/2; const cy = h/2;
+            const rings = 30 + chaos*20;
+            const maxR = Math.hypot(w,h)/1.5;
+
+            for(let i=0; i<rings; i++) {
+                const p = i/rings;
+                const r = maxR * Math.pow(p, 2); // 指数增长
+                const alpha = p; 
+                
+                ctx.strokeStyle = `hsla(${(hue + i*5)%360}, ${sat}%, ${isLight?40:60}%, ${alpha})`;
+                ctx.lineWidth = 2 + p*10; // 越近越粗
+                
+                ctx.beginPath();
+                // 稍微扭曲
+                const rot = p * Math.PI + genes[0]*5;
+                for(let a=0; a<Math.PI*2; a+=0.1) {
+                    const rr = r * (0.8 + 0.2*Math.sin(a*5 + rot));
+                    const x = cx + Math.cos(a)*rr;
+                    const y = cy + Math.sin(a)*rr;
+                    if(a===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+                progress.style.width = (i/rings*100)+'%'; await tick();
+            }
+        }
+
+        // 6. Blocks (积木 - Isometric)
+        async function renderBlocks(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const size = 60 + chaos*40;
+            const cols = Math.ceil(w/size)+1;
+            const rows = Math.ceil(h/size)+1;
+            
+            for(let y=0; y<rows; y++) {
+                for(let x=0; x<cols; x++) {
+                    // 只绘制一部分
+                    if (noise(x*0.1, y*0.1) < 0.3 - chaos*0.1) continue;
+
+                    const isoX = (x - y) * size * 0.8 + w/2;
+                    const isoY = (x + y) * size * 0.4; // 扁平化模拟 ISO
+                    
+                    // Height offset
+                    const z = noise(x*0.2, y*0.2) * size * 2;
+                    const finalY = isoY - z;
+
+                    const hVal = (hue + z*2)%360;
+                    
+                    // Top Face
+                    ctx.fillStyle = `hsl(${hVal}, ${sat}%, ${isLight?bgL-10:bgL+10}%)`;
+                    ctx.beginPath();
+                    ctx.moveTo(isoX, finalY);
+                    ctx.lineTo(isoX+size*0.8, finalY+size*0.4);
+                    ctx.lineTo(isoX, finalY+size*0.8);
+                    ctx.lineTo(isoX-size*0.8, finalY+size*0.4);
+                    ctx.fill();
+
+                    // Side Face (Darker)
+                    ctx.fillStyle = `hsl(${hVal}, ${sat}%, ${isLight?bgL-30:bgL-10}%)`;
+                    ctx.beginPath();
+                    ctx.moveTo(isoX+size*0.8, finalY+size*0.4);
+                    ctx.lineTo(isoX+size*0.8, finalY+size*0.4 + size); // height
+                    ctx.lineTo(isoX, finalY+size*0.8 + size);
+                    ctx.lineTo(isoX, finalY+size*0.8);
+                    ctx.fill();
+
+                    // Left Face (Darkest)
+                    ctx.fillStyle = `hsl(${hVal}, ${sat}%, ${isLight?bgL-40:bgL-20}%)`;
+                    ctx.beginPath();
+                    ctx.moveTo(isoX-size*0.8, finalY+size*0.4);
+                    ctx.lineTo(isoX-size*0.8, finalY+size*0.4 + size);
+                    ctx.lineTo(isoX, finalY+size*0.8 + size);
+                    ctx.lineTo(isoX, finalY+size*0.8);
+                    ctx.fill();
+                }
+                progress.style.width = (y/rows*100)+'%'; await tick();
+            }
+        }
+
+        // 7. Ribbon (飘带)
+        async function renderRibbon(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 10 + chaos*10;
+            ctx.lineCap = 'round';
+            for(let i=0; i<count; i++) {
+                let px = rnd(0,w); let py = rnd(0,h);
+                const len = rnd(500, 1500);
+                const width = rnd(10, 50);
+                const hVal = (hue + rnd(-20,20))%360;
+                
+                ctx.beginPath();
+                for(let j=0; j<len; j+=5) {
+                    const n = noise(j*0.005, i);
+                    px += Math.cos(n*10) * 5;
+                    py += Math.sin(n*10) * 5;
+                    ctx.lineTo(px, py);
+                }
+                
+                // Shadow
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.strokeStyle = `hsla(${hVal}, ${sat}%, ${isLight?50:60}%, 0.8)`;
+                ctx.lineWidth = width;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+        }
+
+        // 8. Topo (地形 - 3D Map)
+        async function renderTopo(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const step = 5;
+            const rows = h/step;
+            ctx.lineWidth = 1;
+            
+            for(let y=0; y<h; y+=step) {
+                ctx.beginPath();
+                const zScale = 100 * (1+chaos);
+                for(let x=0; x<w; x+=10) {
+                    const z = noise(x*0.005, y*0.005 + genes[4]) * zScale;
+                    // 透视投影简单模拟: y 随 z 偏移
+                    ctx.lineTo(x, y - z);
+                }
+                const alpha = (y/h) * 0.5 + 0.1;
+                ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${isLight?30:80}%, ${alpha})`;
+                ctx.stroke();
+                progress.style.width = (y/h*100)+'%';
+                if(y%50===0) await tick();
+            }
+        }
+
+        // 9. Shards (碎片)
+        async function renderShards(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 50 + chaos*100;
+            const cx = w/2; const cy = h/2;
+            
+            for(let i=0; i<count; i++) {
+                // 爆炸中心
+                const dist = rnd(0, Math.hypot(w,h)/2);
+                const angle = rnd(0, Math.PI*2);
+                const x = cx + Math.cos(angle)*dist;
+                const y = cy + Math.sin(angle)*dist;
+                
+                // 碎片大小随距离变小
+                const size = rnd(10, 50) * (1 - dist/(Math.hypot(w,h)/2)); 
+                
+                ctx.fillStyle = `hsla(${(hue+rnd(-30,30))%360}, ${sat}%, ${isLight?40:70}%, ${rnd(0.3,0.9)})`;
+                
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(angle + Math.PI/2); // 碎片朝向外
+                
+                ctx.beginPath();
+                ctx.moveTo(0, -size);
+                ctx.lineTo(size/3, size);
+                ctx.lineTo(-size/3, size);
+                ctx.fill();
+                ctx.restore();
+                
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+        }
+
+        // 10. Vortex (旋涡 - 吸入感)
+        async function renderVortex(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const lines = 100 + chaos*50;
+            const cx = w/2; const cy = h/2;
+            
+            for(let i=0; i<lines; i++) {
+                const angleOffset = (i/lines) * Math.PI * 2;
+                const hVal = (hue + i)%360;
+                
+                ctx.strokeStyle = `hsla(${hVal}, ${sat}%, ${isLight?40:70}%, ${rnd(0.3, 0.7)})`;
+                ctx.lineWidth = rnd(1, 3);
+                
+                ctx.beginPath();
+                for(let r=10; r<Math.hypot(w,h); r+=10) {
+                    const twist = r * 0.01 * (1+chaos);
+                    const a = angleOffset + twist;
+                    const x = cx + Math.cos(a)*r;
+                    const y = cy + Math.sin(a)*r;
+                    if(r===10) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+                }
+                ctx.stroke();
+                progress.style.width = (i/lines*100)+'%'; await tick();
+            }
+        }
+
+        // --- OLD ENGINES (Preserved) ---
+        async function renderAura(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 6 + Math.floor(chaos * 10);
+            ctx.globalCompositeOperation = isLight ? 'multiply' : 'screen';
+            for(let i=0; i<count; i++) {
+                const x = rnd(0,w); const y = rnd(0,h); const r = rnd(w*0.4, w*0.9);
+                const hVal = (hue + rnd(-60,60))%360;
+                const grad = ctx.createRadialGradient(x,y,0,x,y,r);
+                grad.addColorStop(0, `hsla(${hVal},${sat}%,${isLight?50:60}%,${rnd(0.1,0.3)})`);
+                grad.addColorStop(1, `hsla(${hVal},${sat}%,${isLight?50:60}%,0)`);
+                ctx.fillStyle = grad;
+                ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        async function renderCrystal(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 40 + chaos*60;
+            ctx.globalCompositeOperation = isLight ? 'multiply' : 'overlay';
+            for(let i=0; i<count; i++) {
+                const x = rnd(0,w); const y = rnd(0,h); const size = rnd(w*0.1, w*0.4);
+                const hVal = (hue+rnd(-30,30))%360;
+                ctx.fillStyle = `hsla(${hVal},${sat}%,${isLight?bgL-20:bgL+20}%,${rnd(0.05,0.2)})`;
+                ctx.beginPath();
+                const sides = Math.floor(rnd(3,6));
+                for(let s=0; s<sides; s++) {
+                    const th = (s/sides)*Math.PI*2 + rnd(0,1);
+                    ctx.lineTo(x+Math.cos(th)*size, y+Math.sin(th)*size);
+                }
+                ctx.fill();
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        async function renderAcid(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 15;
+            ctx.filter = `blur(${w*0.1}px)`;
+            for(let i=0; i<count; i++) {
+                const x=rnd(0,w); const y=rnd(0,h); const r=rnd(w*0.2, w*0.5);
+                ctx.fillStyle = `hsla(${(hue+rnd(-90,90))%360},${sat}%,${isLight?50:60}%,0.8)`;
+                ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                progress.style.width = (i/count*50)+'%'; await tick();
+            }
+            ctx.filter = 'none';
+            addGrain(w,h, 40 + chaos*40);
+            progress.style.width = '100%';
+        }
+
+        async function renderGlitch(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            await renderCrystal(w, h, hue, sat, bgL, isLight, chaos, genes, {style:{}});
+            const slices = 50 + chaos*100;
+            for(let i=0; i<slices; i++) {
+                const hSlice = rnd(2, 20);
+                const y = rnd(0, h-hSlice);
+                const shift = rnd(-50, 50) * chaos;
+                const sliceData = ctx.getImageData(0, y, w, hSlice);
+                ctx.putImageData(sliceData, shift, y);
+                if(Math.random() < 0.3) {
+                    ctx.fillStyle = `hsla(${(hue+180)%360}, 90%, 50%, 0.8)`;
+                    ctx.fillRect(rnd(0,w), y, rnd(10,100), rnd(2,5));
+                }
+                if(i%5===0) { progress.style.width = (i/slices*100)+'%'; await tick(); }
+            }
+        }
+
+        async function renderNeon(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const count = 20 + chaos*30;
+            ctx.lineCap = 'round';
+            if(isLight) { ctx.globalCompositeOperation = 'multiply'; } else { ctx.globalCompositeOperation = 'screen'; }
+            for(let i=0; i<count; i++) {
+                const x1 = rnd(0,w); const y1 = rnd(0,h);
+                const isVert = Math.random() > 0.5;
+                const len = rnd(100, w/2);
+                const x2 = isVert ? x1 : x1+len;
+                const y2 = isVert ? y1+len : y1;
+                const hVal = (hue + rnd(-20,20))%360;
+                const width = rnd(2, 10);
+                ctx.shadowBlur = width * 4;
+                ctx.shadowColor = `hsl(${hVal}, 100%, 50%)`;
+                ctx.strokeStyle = `hsl(${hVal}, 100%, ${isLight?40:70}%)`;
+                ctx.lineWidth = width;
+                ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+                ctx.shadowBlur = 0;
+                progress.style.width = (i/count*100)+'%'; await tick();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        async function renderPixel(w, h, hue, sat, bgL, isLight, chaos, genes, progress) {
+            const blockSize = Math.max(20, 100 - chaos*80);
+            const cols = Math.ceil(w/blockSize);
+            const rows = Math.ceil(h/blockSize);
+            for(let y=0; y<rows; y++) {
+                for(let x=0; x<cols; x++) {
+                    const n = noise(x*0.1, y*0.1 + genes[4]*10);
+                    if (n > 0.2) {
+                        const hVal = (hue + n*50)%360;
+                        const lVal = isLight ? bgL - n*40 : bgL + n*40;
+                        ctx.fillStyle = `hsl(${hVal}, ${sat}%, ${lVal}%)`;
+                        ctx.fillRect(x*blockSize, y*blockSize, blockSize, blockSize);
+                        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+                        ctx.fillRect(x*blockSize, y*blockSize, blockSize, 4);
+                    }
+                }
+                if(y%5===0) { progress.style.width = (y/rows*100)+'%'; await tick(); }
+            }
+        }
+
+        function tick() { return new Promise(r=>requestAnimationFrame(r)); }
+        function addGrain(w, h, amount) {
+            const id = ctx.getImageData(0,0,w,h);
+            const d = id.data;
+            for(let i=0;i<d.length;i+=4){
+                const n = (Math.random()-0.5)*amount;
+                d[i]+=n; d[i+1]+=n; d[i+2]+=n;
+            }
+            ctx.putImageData(id,0,0);
+        }
+        function finishRender(genes, isLight) {
+            addGrain(canvas.width, canvas.height, 10 + Math.random()*10);
+            const w=canvas.width, h=canvas.height;
+            const g = ctx.createRadialGradient(w/2,h/2,h/3,w/2,h/2,h);
+            g.addColorStop(0, 'rgba(0,0,0,0)');
+            g.addColorStop(1, `rgba(0,0,0,${0.2})`);
+            ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+            isGenerating = false;
+            document.getElementById('loader').style.opacity = 0;
+            document.getElementById('progress').style.width = '0%';
+        }
+        function downloadImg() {
+            if(isGenerating) return;
+            const a = document.createElement('a');
+            a.download = `OmniFlow3D_${currentEngine}_${Date.now()}.png`;
+            a.href = canvas.toDataURL('image/png');
+            a.click();
+        }
+
+        // Init
+        document.querySelector('.style-btn').click();
+    </script>
+</body>
+</html>
+
+
